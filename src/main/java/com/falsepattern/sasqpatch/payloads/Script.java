@@ -26,10 +26,33 @@ public class Script implements IPayload {
     @Getter
     private String path;
     @Getter
-    @Setter
     private byte[] bytecode;
     private byte[] compressedUnmodified;
     private boolean modified = false;
+
+    public void setBytecode(byte[] bytecode) {
+        this.bytecode = bytecode;
+        compressedUnmodified = null;
+        modified = true;
+        path = nameFromBytecode(bytecode);
+    }
+
+    private String nameFromBytecode(byte[] bytecode) {
+        int ptrBytes = bytecode[8] & 0xFF;
+        return switch (ptrBytes) {
+            case 4 -> {
+                int length = DataUtil.readIntLE(bytecode, 12);
+                yield new String(bytecode, 16, length - 1);
+            }
+            case 8 -> {
+                int length = Math.toIntExact(DataUtil.readLongLE(bytecode, 12));
+                yield new String(bytecode, 20, length - 1);
+            }
+            default -> {
+                throw new IllegalArgumentException(Integer.toHexString(ptrBytes));
+            }
+        };
+    }
 
     @Override
     public IPayloadReader createReader() {
@@ -52,16 +75,7 @@ public class Script implements IPayload {
                         case null -> throw new IOException();
                     }
                     bytecode = Arrays.copyOfRange(data, start, end);
-                    path = switch (bits) {
-                        case X32 -> {
-                            int length = DataUtil.readIntLE(bytecode, 12);
-                            yield new String(bytecode, 16, length - 1);
-                        }
-                        case X64 -> {
-                            int length = Math.toIntExact(DataUtil.readLongLE(bytecode, 12));
-                            yield new String(bytecode, 20, length - 1);
-                        }
-                    };
+                    path = nameFromBytecode(bytecode);
                 }
 
                 @Override
@@ -184,5 +198,10 @@ public class Script implements IPayload {
     @Override
     public int type() {
         return TYPE;
+    }
+
+    @Override
+    public String extraNameInfo() {
+        return "Script(" + path + ")";
     }
 }

@@ -49,8 +49,11 @@ public class Block {
         } else {
             int dataLength = writer.outputSizeBytes();
             int combinedLength = dataLength + BlockHeader.LENGTH_BYTES;
-            int totalLength = ((combinedLength + Constants.SECTOR_SIZE - 1) / Constants.SECTOR_SIZE) * Constants.SECTOR_SIZE;
-            header.length = totalLength / Constants.SECTOR_SIZE;
+            int newSectorCount = ((combinedLength + Constants.SECTOR_SIZE - 1) / Constants.SECTOR_SIZE);
+            if (newSectorCount > header.length)
+                throw new IllegalStateException("Header resizal! Payload: " + payload.extraNameInfo());
+            newSectorCount = header.length;
+            int totalLength = newSectorCount * Constants.SECTOR_SIZE;
             int padding = totalLength - combinedLength;
             header.write(output);
             writer.write(output);

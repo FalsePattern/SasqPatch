@@ -14,6 +14,6 @@ dependencies {
     annotationProcessor("org.projectlombok:lombok:1.18.36")
 
     implementation("commons-io:commons-io:2.18.0")
-    implementation("org.luaj:luaj-jse:3.0.1")
+    implementation("org.luaj:luaj-jse:2.0.3")
 }
 

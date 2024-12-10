@@ -5,4 +5,5 @@ public interface IPayload {
     IPayloadReader createReader();
     IPayloadWriter createWriter();
     int type();
+    String extraNameInfo();
 }
