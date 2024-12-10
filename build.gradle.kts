@@ -1,6 +1,5 @@
 plugins {
     java
-    application
 }
 
 group = "com.falsepattern"
@@ -25,8 +24,17 @@ tasks.compileJava {
     javaCompiler = javaToolchains.compilerFor(java.toolchain)
 }
 
-application {
+tasks.register<JavaExec>("decompile") {
+    group = "application"
+    classpath = sourceSets["main"].runtimeClasspath
     mainClass = "com.falsepattern.sasqpatch.Main"
+}
+
+tasks.register<JavaExec>("recompile") {
+    group = "application"
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass = "com.falsepattern.sasqpatch.Main"
+    args = listOf("recompile")
 }
 
 dependencies {

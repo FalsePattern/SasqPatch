@@ -19,6 +19,7 @@ import java.io.BufferedOutputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.io.PrintStream;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -56,6 +57,7 @@ public class Main {
 
 
     public static void main(String[] args) throws Exception {
+        boolean recompile = Arrays.asList(args).contains("recompile");
         JsePlatform.standardGlobals();
         val game = NEX_MACHINA;
         @Cleanup val exec = Executors.newVirtualThreadPerTaskExecutor();
@@ -68,7 +70,13 @@ public class Main {
             return;
         }
         val blocks = new ArrayList<Block>();
-        try (val sFile = new StreamFile(p, game.bits); val cOut = new BufferedOutputStream(Files.newOutputStream(pOut, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.CREATE, StandardOpenOption.WRITE), 2 * 1024 * 1024)) {
+        final OutputStream cOut;
+        if (recompile) {
+            cOut = new BufferedOutputStream(Files.newOutputStream(pOut, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.CREATE, StandardOpenOption.WRITE), 2 * 1024 * 1024);
+        } else {
+            cOut = null;
+        }
+        try (val sFile = new StreamFile(p, game.bits)) {
             val prefixDir = Path.of("games", game.name, "dev");
             Files.createDirectories(prefixDir);
             sFile.blocks(false)
@@ -84,16 +92,21 @@ public class Main {
                      } catch (InterruptedException | ExecutionException e) {
                          throw new RuntimeException(e);
                      }
-                     try {
-                         block.write(cOut);
-                     } catch (IOException e) {
-                         throw new RuntimeException(e);
+                     if (recompile) {
+                         try {
+                             block.write(cOut);
+                         } catch (IOException e) {
+                             throw new RuntimeException(e);
+                         }
                      }
                  });
-
+        } finally {
+            exec.shutdown();
+            exec.awaitTermination(10, TimeUnit.MINUTES);
+            if (cOut != null) {
+                cOut.close();
+            }
         }
-        exec.shutdown();
-        exec.awaitTermination(10, TimeUnit.MINUTES);
     }
 
     @SneakyThrows
