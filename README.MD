@@ -14,4 +14,13 @@ Games that are known to use this file format:
 This project mainly focuses on patching `SCRI` assets, which are standard Lua 5.1 bytecode scripts used to define a lot of complex behaviour in these games.
 Patching for other asset files is planned in the future due to file complexity.
 
-At the moment this tool is in research and development phase and thus is not yet usable for modding.
+# HOW TO USE
+1. create `games/nexmachina/input`
+2. Put `stream.dat` from Nex Machina into this input folder
+3. Run `com.falsepattern.sasqpatch.Main`
+4. Edit scripts in `games/nexmachina/dev`, add `--SP_recompile` to the start of the file for any scripts you want to modify
+5. Run `com.falsepattern.sasqpatch.Main` again
+6. Copy `games/nexmachina/output/stream.dat` into Nex Machina
+7. Enjoy
+
+Outland modding not yet implemented, but it's Work in Progress.
