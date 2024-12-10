@@ -19,7 +19,7 @@ Patching for other asset files is planned in the future due to file complexity.
 
 ## HOW TO USE
 1. create the `./games/nexmachina/input` folder in this directory
-2. Put `stream.dat` from Nex Machina into this input folder
+2. Put `stream.dat` from Nex Machina into that input folder
 3. Run `./gradlew run`
 4. Edit scripts in `./games/nexmachina/dev`, add `--SP_recompile` to the start of the file for any scripts you want to modify
 5. Run `./gradlew run` again
