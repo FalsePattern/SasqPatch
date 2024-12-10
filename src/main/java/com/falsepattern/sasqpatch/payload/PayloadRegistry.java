@@ -13,7 +13,9 @@ public class PayloadRegistry {
     private final Map<Integer, Supplier<IPayload>> GENERATORS = new HashMap<>();
 
     public PayloadRegistry(Bits bits) {
+        //SCRM
         GENERATORS.put(ScriptManifest.TYPE, ScriptManifest::new);
+        //SCRI
         GENERATORS.put(Script.TYPE, () -> new Script(bits));
     }
 

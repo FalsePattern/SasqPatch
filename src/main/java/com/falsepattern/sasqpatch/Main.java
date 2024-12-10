@@ -2,121 +2,181 @@ package com.falsepattern.sasqpatch;
 
 import com.falsepattern.sasqpatch.payloads.Script;
 import lombok.Cleanup;
+import lombok.RequiredArgsConstructor;
+import lombok.SneakyThrows;
 import lombok.val;
-import org.apache.commons.io.FileUtils;
+import org.luaj.vm2.Prototype;
+import org.luaj.vm2.compiler.LuaC;
+import org.luaj.vm2.lib.jse.JsePlatform;
 import unluac.Configuration;
 import unluac.decompile.Decompiler;
 import unluac.decompile.Output;
 import unluac.decompile.OutputProvider;
 import unluac.parse.BHeader;
-import unluac.parse.LFunction;
 
+import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.OutputStream;
+import java.io.InputStream;
 import java.io.PrintStream;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.Arrays;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 public class Main {
     // TODO un-hardcode
-    private record Game(String path, Bits bits, String outputPrefix, String... scriptPrefix) {
+    private record Game(String name, Bits bits, String... scriptPrefix) {
     }
     private static final Game NEX_MACHINA = new Game(
-            "/home/falsepattern/.local/share/Steam/steamapps/common/Nex Machina",
+            "nexmachina",
             Bits.X64,
             "nexmachina",
             "@D:\\jenkins\\workspace\\nex_machina_master\\resotron_master\\data\\resources\\nonscene\\"
     );
-    private static final Game OUTLAND = new Game(
-            "/home/falsepattern/.local/share/Steam/steamapps/common/Outland",
-            Bits.X32,
-            "outland",
-            "@c:\\external_projects\\humblebundle\\Kingdom_14_Jan_2014\\Kingdom\\data\\resources\\nonscene\\",
-            "@C:\\dev\\humblebundle\\outland\\Kingdom_14_Jan_2014\\Kingdom\\data\\resources\\nonscene\\",
-            "@C:\\external_projects\\humblebundle\\outland\\Kingdom_14_Jan_2014\\Kingdom\\data\\resources\\nonscene\\"
+    // TODO recompiling not yet implemented for Outland
+//    private static final Game OUTLAND = new Game(
+//            "outland",
+//            Bits.X32,
+//            "@c:\\external_projects\\humblebundle\\Kingdom_14_Jan_2014\\Kingdom\\data\\resources\\nonscene\\",
+//            "@C:\\dev\\humblebundle\\outland\\Kingdom_14_Jan_2014\\Kingdom\\data\\resources\\nonscene\\",
+//            "@C:\\external_projects\\humblebundle\\outland\\Kingdom_14_Jan_2014\\Kingdom\\data\\resources\\nonscene\\"
+//
+//    );
+    private static final String recPrefix = "--SP_recompile";
+    private static final byte[] recPrefixBytes = recPrefix.getBytes(StandardCharsets.UTF_8);
 
-    );
+
     public static void main(String[] args) throws Exception {
+        JsePlatform.standardGlobals();
         val game = NEX_MACHINA;
         @Cleanup val exec = Executors.newVirtualThreadPerTaskExecutor();
-        val p = Path.of(game.path + "/stream.dat");
-        val pOut = Path.of("./stream.dat");
-        try (val sFile = new StreamFile(p, game.bits); val cOut = new BufferedOutputStream(Files.newOutputStream(pOut), 2 * 1024 * 1024)) {
-
-            sFile.blocks(false).forEach(block -> {
-                try {
-                    block.write(cOut);
-                } catch (IOException e) {
-                    throw new RuntimeException(e);
-                }
-                if ( block.getHeader().type == Script.TYPE) {
-                    exec.submit(() -> {
-                        val script = (Script) block.getPayload();
-                        var path = script.getPath();
-                        boolean hadPrefix = false;
-                        for (val strip: game.scriptPrefix) {
-                            if (path.startsWith(strip)) {
-                                path = path.substring(strip.length());
-                                hadPrefix = true;
-                                break;
-                            }
-                        }
-                        if (!hadPrefix) {
-                            System.out.println("Unknown script prefix: " + script.getPath());
-                            return;
-                        }
-                        path = path.replace('\\', '/');
-                        try {
-                            val filePath = Path.of(game.outputPrefix).resolve(path);
-                            Files.createDirectories(filePath.getParent());
-                            val writer = new BufferedOutputStream(Files.newOutputStream(filePath, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE));
-                            @Cleanup val print = new PrintStream(writer);
-                            decompile(script.getBytecode(), print);
-                        } catch (IOException e) {
-                            throw new RuntimeException(e);
-                        }
-                    });
-                }
-            });
+        val p = Path.of("games", game.name, "input", "stream.dat");
+        val pOut = Path.of("games", game.name, "output", "stream.dat");
+        Files.createDirectories(p.getParent());
+        Files.createDirectories(pOut.getParent());
+        if (!Files.exists(p)) {
+            System.err.println("Copy stream.dat into " + p.toAbsolutePath().getParent() + "/");
+            return;
+        }
+        val blocks = new ArrayList<Block>();
+        try (val sFile = new StreamFile(p, game.bits); val cOut = new BufferedOutputStream(Files.newOutputStream(pOut, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.CREATE, StandardOpenOption.WRITE), 2 * 1024 * 1024)) {
+            val prefixDir = Path.of("games", game.name, "dev");
+            Files.createDirectories(prefixDir);
+            sFile.blocks(false)
+                 .map(block -> switch (block.getHeader().type) {
+                     case Script.TYPE -> CompletableFuture.supplyAsync(() -> transformScript(block, game, prefixDir), exec);
+                     default -> CompletableFuture.completedFuture(block);
+                 })
+                 .toList()
+                 .forEach(future -> {
+                     final Block block;
+                     try {
+                         block = future.get();
+                     } catch (InterruptedException | ExecutionException e) {
+                         throw new RuntimeException(e);
+                     }
+                     try {
+                         block.write(cOut);
+                     } catch (IOException e) {
+                         throw new RuntimeException(e);
+                     }
+                 });
 
         }
         exec.shutdown();
         exec.awaitTermination(10, TimeUnit.MINUTES);
-        System.out.println(FileUtils.contentEquals(p.toFile(), pOut.toFile()));
     }
 
-    private static LFunction bytesToFunction(byte[] bytecode) {
+    @SneakyThrows
+    private static Block transformScript(Block block, Game game, Path prefixDir) {
+        val script = (Script) block.getPayload();
+        var path = script.getPath();
+        String prefix = null;
+        for (val strip: game.scriptPrefix) {
+            if (path.startsWith(strip)) {
+                path = path.substring(strip.length());
+                prefix = strip;
+                break;
+            }
+        }
+        if (prefix == null) {
+            System.err.println("Unknown script prefix: " + script.getPath());
+            return block;
+        }
+        path = path.replace('\\', '/');
+        val decompiledFilePath = prefixDir.resolve(path);
+        val parentDir = decompiledFilePath.getParent();
+        val bc = script.getBytecode();
+        Files.createDirectories(parentDir);
+        if (!Files.exists(decompiledFilePath)) {
+            decompile(bc, decompiledFilePath);
+            return block;
+        }
+        @Cleanup val input = new BufferedInputStream(Files.newInputStream(decompiledFilePath));
+        input.mark(recPrefixBytes.length);
+        val buf = input.readNBytes(recPrefixBytes.length);
+        if (!Arrays.equals(buf, recPrefixBytes)) {
+            return block;
+        }
+        System.out.println("Recompiling " + path);
+        input.reset();
+        script.setBytecode(compile(input, script.getPath()));
+        return block;
+    }
+
+    private static byte[] compile(InputStream input, String path) throws IOException {
+        final Prototype compiledProto = LuaC.compile(input, path);
+        byte[] compiled;
+        {
+            val recompiledOut = new ByteArrayOutputStream();
+            DumpState.dump(compiledProto, recompiledOut, true, 0, true);
+            compiled = recompiledOut.toByteArray();
+        }
+        return compiled;
+    }
+
+    private static void decompile(byte[] bytecode, Path decompiledFilePath) throws IOException {
+        val decompiledOut = new ByteArrayOutputStream();
+        val print = new PrintStream(decompiledOut);
+        doDecompile(bytecode, print);
+        print.close();
+        Files.write(decompiledFilePath, decompiledOut.toByteArray());
+    }
+
+    private static synchronized void doDecompile(byte[] bytecode, PrintStream output) {
         val config = new Configuration();
         val header = new BHeader(ByteBuffer.wrap(bytecode), config);
-        return header.main;
-    }
-
-    private static void decompile(byte[] bytecode, PrintStream output) {
-        val lmain = bytesToFunction(bytecode);
+        val lmain = header.main;
         val d = new Decompiler(lmain);
         d.decompile();
-        d.print(new Output(new OutputProvider() {
-            @Override
-            public void print(String s) {
-                output.print(s);
-            }
+        d.print(new Output(new PrintStreamOutputProvider(output)));
+    }
 
-            @Override
-            public void print(byte b) {
-                output.print(b);
-            }
+    @RequiredArgsConstructor
+    private static class PrintStreamOutputProvider implements OutputProvider {
+        private final PrintStream print;
+        @Override
+        public void print(String s) {
+            print.print(s);
+        }
 
-            @Override
-            public void println() {
-                output.println();
-            }
-        }));
+        @Override
+        public void print(byte b) {
+            print.print(b);
+        }
+
+        @Override
+        public void println() {
+            print.println();
+        }
     }
 }

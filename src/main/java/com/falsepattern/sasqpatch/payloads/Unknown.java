@@ -41,4 +41,9 @@ public class Unknown implements IPayload {
     public int type() {
         return 0;
     }
+
+    @Override
+    public String extraNameInfo() {
+        return "UNKNOWN ";
+    }
 }

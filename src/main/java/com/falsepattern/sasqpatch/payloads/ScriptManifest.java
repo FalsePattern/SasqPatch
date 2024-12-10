@@ -104,6 +104,11 @@ public class ScriptManifest implements IPayload {
         return TYPE;
     }
 
+    @Override
+    public String extraNameInfo() {
+        return "Script Manifest";
+    }
+
     public static class ScriptRef {
         public int blockOffset;
         public long scriptID;
